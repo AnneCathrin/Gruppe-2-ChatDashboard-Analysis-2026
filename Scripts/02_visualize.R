@@ -52,7 +52,7 @@ for (file in files) {
 
 # First, let's start with the in-built plots from WhatsR
 
-example_chat <- chatlogs[["example_chat"]]
+example_chat <- chatlogs[["Teilnehmer_1_2026-05-07_20-20-28_1883dad6"]]
 
 ## to plot emojis, I implemented my own fix since the package has some issues with emoji rendering. 
 ## Do NOT use WhatsR::plot_emoji, use the function in the repo instead. By default, it is already masked.
@@ -478,3 +478,181 @@ plot_relative_emoji <- function(chatlog, num_emoji = 5, plotname = "placeholder"
 
 plot_relative_emoji(example_chat, 5, "rel_emoji", as.POSIXct("2020-01-01"))
 #
+
+# 1. Das Suchmuster definieren (falls noch nicht geschehen)
+emoji_regex <- "[\\x{1F300}-\\x{1F6FF}\\x{1F900}-\\x{1F9FF}\\x{2600}-\\x{26FF}\\x{2700}-\\x{27BF}]"
+
+# 2. Daten verarbeiten
+emoji_counts_mit_person <- chat %>%  # <- Hier den Namen deiner Tabelle eintragen
+  # JETZT KORRIGIERT: Erst die Nachrichtenspalte, dann die Regex-Formel
+  mutate(Emoji = str_extract_all(Emoji, emoji_regex)) %>% 
+  unnest(Emoji) %>%
+  # Hier zählen wir nach Sender und Emoji
+  count(Sender, Emoji, name = "n")
+
+# Wir nutzen nun den neuen Datensatz mit der Personen-Spalte
+ggplot(data = emoji_counts_mit_person, aes(x = Sender, y = n, fill = Sender)) +
+  
+  # Erstellt die Balken und summiert die Emojis pro Person automatisch auf
+  geom_col(show.legend = FALSE, width = 0.5) +
+  
+  # Schöne Farben für Person_1 und Person_2
+  scale_fill_brewer(palette = "Set1") + 
+  
+  theme_minimal(base_size = 14) +
+  
+  labs(
+    title = "Gesamtanzahl der gesendeten Emojis pro Person",
+    subtitle = "Vergleich zwischen Person 1 und Person 2",
+    x = "Person",
+    y = "Gesamtanzahl Emojis"
+  ) +
+  
+  # Schreibt die exakte Gesamtzahl über die Balken
+  stat_summary(
+    fun = sum, 
+    aes(label = after_stat(y)), 
+    geom = "text", 
+    vjust = -0.5, 
+    fontface = "bold"
+  )
+
+# 1. Suchmuster für Emojis definieren
+emoji_regex <- "[\\x{1F300}-\\x{1F6FF}\\x{1F900}-\\x{1F9FF}\\x{2600}-\\x{26FF}\\x{2700}-\\x{27BF}]"
+
+# --- ZWEITER DATENSATZ ---
+# 2. RDS-Datei einlesen
+raw_data_2 <- readRDS("Teilnehmer_1_2026-05-07_20-22-52_40ccf5e8.rds") 
+
+# 3. Emojis extrahieren und zählen
+emoji_counts_mit_person_2 <- raw_data_2 %>% 
+  mutate(Emoji = str_extract_all(Emoji, emoji_regex)) %>% 
+  unnest(Emoji) %>%
+  count(Sender, Emoji, name = "n")
+
+
+# --- DRITTER DATENSATZ ---
+# 4. RDS-Datei einlesen
+raw_data_3 <- readRDS("Teilnehmer_1_2026-05-07_20-25-04_d0f4f621.rds") 
+
+# 5. Emojis extrahieren und zählen
+emoji_counts_mit_person_3 <- raw_data_3 %>% 
+  mutate(Emoji = str_extract_all(Emoji, emoji_regex)) %>% 
+  unnest(Emoji) %>%
+  count(Sender, Emoji, name = "n")
+
+# Zusammenführen und benennen, woher die Daten stammen
+kombinierte_daten <- bind_rows(
+  "Chat 1" = emoji_counts_mit_person,
+  "Chat 2" = emoji_counts_mit_person_2,
+  "Chat 3" = emoji_counts_mit_person_3,
+  .id = "Quelle"
+)
+
+ggplot(data = kombinierte_daten, aes(x = Sender, y = n, fill = Quelle)) +
+  
+  # Nebeneinanderstehende Balken
+  geom_col(position = position_dodge(width = 0.8), width = 0.7) +
+  
+  # Farbschema ("Set2" hat schöne, dezente Farben für 3 Gruppen)
+  scale_fill_brewer(palette = "Set2") + 
+  
+  theme_minimal(base_size = 14) +
+  
+  labs(
+    title = "Gesamtanzahl der gesendeten Emojis pro Person",
+    subtitle = "Vergleich über drei verschiedene Datensätze",
+    x = "Person",
+    y = "Gesamtanzahl Emojis",
+    fill = "Datenquelle"
+  ) +
+  
+  # Exakte Zahlen über die Balken schreiben
+  stat_summary(
+    fun = sum,
+    aes(label = after_stat(y)),
+    geom = "text",
+    position = position_dodge(width = 0.8), 
+    vjust = -0.5,
+    fontface = "bold",
+    size = 4
+  ) +
+  
+  theme(
+    legend.position = "bottom",
+    panel.grid.major.x = element_blank()
+  )
+
+# 1. Daten präzise für das Diagramm vorbereiten (Vorab aufsummieren)
+plot_daten <- kombinierte_daten %>%
+  group_by(Quelle, Sender) %>%
+  summarise(Gesamtanzahl = sum(n), .groups = "drop")
+
+# 2. Das korrigierte Diagramm zeichnen
+ggplot(data = plot_daten, aes(x = Sender, y = Gesamtanzahl, fill = Quelle)) +
+  
+  # Balken nebeneinander zeichnen
+  geom_col(position = position_dodge(width = 0.8), width = 0.7) +
+  
+  # Das Label direkt aus der berechneten Spalte holen (geom_text statt stat_summary)
+  geom_text(
+    aes(label = Gesamtanzahl),
+    position = position_dodge(width = 0.8),
+    vjust = -0.5,           # Leicht über dem Balken positionieren
+    fontface = "bold",
+    size = 4
+  ) +
+  
+  # Styling & Beschriftung (wie gehabt)
+  scale_fill_brewer(palette = "Set2") + 
+  theme_minimal(base_size = 14) +
+  labs(
+    title = "Gesamtanzahl der gesendeten Emojis pro Person",
+    subtitle = "Vergleich über drei verschiedene Datensätze",
+    x = "Person",
+    y = "Gesamtanzahl Emojis",
+    fill = "Datenquelle"
+  ) +
+  theme(
+    legend.position = "bottom",
+    panel.grid.major.x = element_blank()
+  )
+
+# 1. Daten wie vorhin vorbereiten
+plot_daten <- kombinierte_daten %>%
+  group_by(Quelle, Sender) %>%
+  summarise(Gesamtanzahl = sum(n), .groups = "drop")
+
+# 2. Das neu strukturierte Diagramm zeichnen
+# HIER GEÄNDERT: x ist jetzt 'Quelle', fill ist 'Sender'
+ggplot(data = plot_daten, aes(x = Quelle, y = Gesamtanzahl, fill = Sender)) +
+  
+  # Zeichnet die Balken für Person_1 und Person_2 direkt nebeneinander
+  geom_col(position = position_dodge(width = 0.8), width = 0.7) +
+  
+  # Platziert die Zahlen exakt über den jeweiligen Balken des Paares
+  geom_text(
+    aes(label = Gesamtanzahl),
+    position = position_dodge(width = 0.8),
+    vjust = -0.5,
+    fontface = "bold",
+    size = 4
+  ) +
+  
+  # Zwei gut unterscheidbare Farben für die beiden Personen
+  scale_fill_manual(values = c("Person_1" = "#4e79a7", "Person_2" = "#e15759")) + 
+  
+  theme_minimal(base_size = 14) +
+  
+  labs(
+    title = "Gesamtanzahl der gesendeten Emojis im Chatvergleich",
+    subtitle = "Direkter Vergleich zwischen Person 1 und Person 2 pro Datensatz",
+    x = "Datenquelle (Chat)",
+    y = "Gesamtanzahl Emojis",
+    fill = "Person"
+  ) +
+  
+  theme(
+    legend.position = "bottom",
+    panel.grid.major.x = element_blank() # Entfernt vertikale Linien für mehr Übersicht
+  )
