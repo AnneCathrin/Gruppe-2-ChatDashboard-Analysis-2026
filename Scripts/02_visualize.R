@@ -479,6 +479,8 @@ plot_relative_emoji <- function(chatlog, num_emoji = 5, plotname = "placeholder"
 plot_relative_emoji(example_chat, 5, "rel_emoji", as.POSIXct("2020-01-01"))
 #
 
+###############################################################################
+
 # 1. Das Suchmuster definieren (falls noch nicht geschehen)
 emoji_regex <- "[\\x{1F300}-\\x{1F6FF}\\x{1F900}-\\x{1F9FF}\\x{2600}-\\x{26FF}\\x{2700}-\\x{27BF}]"
 
@@ -655,4 +657,143 @@ ggplot(data = plot_daten, aes(x = Quelle, y = Gesamtanzahl, fill = Sender)) +
   theme(
     legend.position = "bottom",
     panel.grid.major.x = element_blank() # Entfernt vertikale Linien für mehr Übersicht
+  )
+
+#############################################################################
+
+library(tidyverse)
+
+# --- CHAT 1 ---
+chat_daten_1 <- readRDS("Teilnehmer_1_2026-05-07_20-20-28_1883dad6.rds")
+
+msg_counts_1 <- chat_daten_1 %>% 
+  # HIER WIRD GEFILTERT: Entfernt leere Zeilen und System-Absender
+  filter(!is.na(Sender), Sender != "", Sender != "WhatsApp System Message", Sender != "System") %>% 
+  count(Sender, name = "Anzahl_Nachrichten")
+
+
+# --- CHAT 2 ---
+chat_daten_2 <- readRDS("Teilnehmer_1_2026-05-07_20-22-52_40ccf5e8.rds")
+
+msg_counts_2 <- chat_daten_2 %>% 
+  filter(!is.na(Sender), Sender != "", Sender != "WhatsApp System Message", Sender != "System") %>% 
+  count(Sender, name = "Anzahl_Nachrichten")
+
+
+# --- CHAT 3 ---
+chat_daten_3 <- readRDS("Teilnehmer_1_2026-05-07_20-25-04_d0f4f621.rds") 
+
+msg_counts_3 <- chat_daten_3 %>% 
+  filter(!is.na(Sender), Sender != "", Sender != "WhatsApp System Message", Sender != "System") %>% 
+  count(Sender, name = "Anzahl_Nachrichten")
+
+# Zusammenführen der sauberen Daten
+kombinierte_nachrichten_sauber <- bind_rows(
+  "Chat 1" = msg_counts_1,
+  "Chat 2" = msg_counts_2,
+  "Chat 3" = msg_counts_3,
+  .id = "Quelle"
+)
+
+# Diagramm zeichnen
+library(ggplot2)
+
+ggplot(data = kombinierte_nachrichten_sauber, aes(x = Quelle, y = Anzahl_Nachrichten, fill = Sender)) +
+  geom_col(position = position_dodge(width = 0.8), width = 0.7) +
+  
+  geom_text(
+    aes(label = Anzahl_Nachrichten),
+    position = position_dodge(width = 0.8),
+    vjust = -0.5,
+    fontface = "bold",
+    size = 4
+  ) +
+  
+  scale_fill_manual(values = c("Person_1" = "#4e79a7", "Person_2" = "#e15759")) + 
+  theme_minimal(base_size = 14) +
+  labs(
+    title = "Gesamtanzahl der gesendeten Nachrichten im Chatvergleich",
+    subtitle = "Bereinigte Daten (ohne WhatsApp-Systemnachrichten)",
+    x = "Datenquelle (Chat)",
+    y = "Anzahl geschriebener Nachrichten",
+    fill = "Person"
+  ) +
+  theme(
+    legend.position = "bottom",
+    panel.grid.major.x = element_blank()
+  )
+
+###############################################################################
+
+library(tidyverse)
+library(lubridate)
+
+berechne_reaktionszeit <- function(rds_pfad) {
+  readRDS(rds_pfad) %>%
+    # 1. System-Nachrichten direkt ausschließen
+    filter(!is.na(Sender), Sender != "", Sender != "WhatsApp System Message", Sender != "System") %>%
+    # 2. Chronologisch sortieren (Wichtig: Nutze deine echte Zeit-Spalte statt 'Timestamp')
+    arrange(DateTime) %>%
+    # 3. Den vorherigen Sender und die vorherige Zeit ermitteln
+    mutate(
+      Vorheriger_Sender = lag(Sender),
+      Vorherige_Zeit = lag(DateTime)
+    ) %>%
+    # 4. Filter: Nur Zeilen behalten, bei denen der Sender GEWECHSELT hat
+    filter(Sender != Vorheriger_Sender) %>%
+    # 5. Zeitdifferenz in Minuten berechnen
+    mutate(
+      Reaktionszeit_Min = as.numeric(difftime(DateTime, Vorherige_Zeit, units = "mins")),
+      # Datum extrahieren für die X-Achse (z.B. auf Tage gerundet)
+      Datum = as.Date(DateTime)
+    ) %>%
+    # 6. Ausreißer begrenzen (z.B. Antworten, die länger als 3 Stunden/180 Min gedauert haben, ignorieren)
+    filter(Reaktionszeit_Min <= 180) %>%
+    # 7. Daten aggregieren: Durchschnittliche Antwortzeit pro Tag und Person berechnen
+    group_by(Datum, Sender) %>%
+    summarise(Avg_Reaktionszeit = mean(Reaktionszeit_Min, na.rm = TRUE), .groups = "drop")
+}
+
+# Berechnen für alle drei Chats
+chat_1_bereinigt <- berechne_reaktionszeit("Teilnehmer_1_2026-05-07_20-20-28_1883dad6.rds")
+chat_2_bereinigt <- berechne_reaktionszeit("Teilnehmer_1_2026-05-07_20-22-52_40ccf5e8.rds")
+chat_3_bereinigt <- berechne_reaktionszeit("Teilnehmer_1_2026-05-07_20-25-04_d0f4f621.rds")
+
+# Zusammenfügen
+kombinierte_reaktionszeit <- bind_rows(
+  "Chat 1" = chat_1_bereinigt,
+  "Chat 2" = chat_2_bereinigt,
+  "Chat 3" = chat_3_bereinigt,
+  .id = "Quelle"
+)
+
+library(ggplot2)
+
+ggplot(data = kombinierte_reaktionszeit, aes(x = Datum, y = Avg_Reaktionszeit, color = Sender)) +
+  
+  # Zeichnet die Linien (glättet sie leicht mit geom_smooth für bessere Lesbarkeit, falls es zappelig ist)
+  geom_line(alpha = 0.4, linewidth = 0.8) + 
+  geom_smooth(se = FALSE, method = "loess", span = 0.3, linewidth = 1.2) +
+  
+  # Trennt das Diagramm sauber in 3 Fenster (eines pro Chat) untereinander auf
+  facet_wrap(~Quelle, ncol = 1, scales = "free_x") +
+  
+  # Farben für die Personen (konsistent zum vorherigen Plot)
+  scale_color_manual(values = c("Person_1" = "#4e79a7", "Person_2" = "#e15759")) +
+  
+  theme_minimal(base_size = 14) +
+  
+  labs(
+    title = "Durchschnittliche Reaktionszeit im Zeitverlauf",
+    subtitle = "Nur bei Senderwechsel gemessen (Trends geglättet, max. 180 Min Wartezeit gewertet)",
+    x = "Datum",
+    y = "Ø Antwortzeit (in Minuten)",
+    color = "Person"
+  ) +
+  
+  theme(
+    legend.position = "bottom",
+    strip.background = element_rect(fill = "#f0f0f0", color = NA),
+    strip.text = element_text(face = "bold"),
+    panel.spacing = unit(1.5, "lines") # Mehr Abstand zwischen den Chat-Fenstern
   )
