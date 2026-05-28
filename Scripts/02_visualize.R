@@ -664,6 +664,73 @@ ggplot(data = plot_daten, aes(x = Quelle, y = Gesamtanzahl, fill = Sender)) +
 library(tidyverse)
 
 # --- CHAT 1 ---
+emoji_timeline_1 <- readRDS("Teilnehmer_1_2026-05-07_20-20-28_1883dad6.rds") %>% 
+  # Wir filtern Systemnachrichten raus
+  filter(!is.na(Sender), Sender != "", Sender != "WhatsApp", Sender != "System", Sender != "WhatsApp System Message") %>% 
+  mutate(Datum = as.Date(DateTime)) %>% 
+  # Wir behalten nur Zeilen, in denen tatsächlich ein Emoji beschrieben wurde
+  # (also nicht NA und nicht leer "")
+  filter(!is.na(EmojiDescriptions), EmojiDescriptions != "") %>% 
+  # Da in einer Nachricht mehrere Emojis stehen können, zählen wir, wie viele Beschreibungen (Wörter/Elemente) drinstecken.
+  # Falls die Emojis dort z.B. durch Komma oder Leerzeichen getrennt sind, zerlegen wir sie kurz:
+  mutate(Message_Clean = sapply(EmojiDescriptions, function(x) paste(unlist(x), collapse = " "))) %>% 
+  # Wir zählen die Anzahl der Wörter/Emoji-Beschreibungen in dieser Zeile
+  mutate(Anzahl_In_Nachricht = str_count(Message_Clean, "\\w+")) %>% 
+  group_by(Datum, Sender) %>% 
+  summarise(Emoji_Anzahl = sum(Anzahl_In_Nachricht, na.rm = TRUE), .groups = "drop")
+
+# --- CHAT 2 ---
+emoji_timeline_2 <- readRDS("Teilnehmer_1_2026-05-07_20-22-52_40ccf5e8.rds") %>% 
+  filter(!is.na(Sender), Sender != "", Sender != "WhatsApp", Sender != "System", Sender != "WhatsApp System Message") %>% 
+  mutate(Datum = as.Date(DateTime)) %>% 
+  filter(!is.na(EmojiDescriptions), EmojiDescriptions != "") %>% 
+  mutate(Message_Clean = sapply(EmojiDescriptions, function(x) paste(unlist(x), collapse = " "))) %>% 
+  mutate(Anzahl_In_Nachricht = str_count(Message_Clean, "\\w+")) %>% 
+  group_by(Datum, Sender) %>% 
+  summarise(Emoji_Anzahl = sum(Anzahl_In_Nachricht, na.rm = TRUE), .groups = "drop")
+
+# --- CHAT 3 ---
+emoji_timeline_3 <- readRDS("Teilnehmer_1_2026-05-07_20-25-04_d0f4f621.rds") %>% 
+  filter(!is.na(Sender), Sender != "", Sender != "WhatsApp", Sender != "System", Sender != "WhatsApp System Message") %>% 
+  mutate(Datum = as.Date(DateTime)) %>% 
+  filter(!is.na(EmojiDescriptions), EmojiDescriptions != "") %>% 
+  mutate(Message_Clean = sapply(EmojiDescriptions, function(x) paste(unlist(x), collapse = " "))) %>% 
+  mutate(Anzahl_In_Nachricht = str_count(Message_Clean, "\\w+")) %>% 
+  group_by(Datum, Sender) %>% 
+  summarise(Emoji_Anzahl = sum(Anzahl_In_Nachricht, na.rm = TRUE), .groups = "drop")
+
+kombinierte_emoji_timeline <- bind_rows(
+  "Chat 1" = emoji_timeline_1,
+  "Chat 2" = emoji_timeline_2,
+  "Chat 3" = emoji_timeline_3,
+  .id = "Quelle"
+) %>% 
+  # Filter erweitert, um auch den exakten Namen der Systemnachrichten zu löschen
+  filter(Sender != "WhatsApp System Message")
+
+library(ggplot2)
+
+ggplot(data = kombinierte_emoji_timeline, aes(x = Datum, y = Emoji_Anzahl, color = Sender)) +
+  geom_line(alpha = 0.3, linewidth = 0.5) +
+  geom_smooth(se = FALSE, method = "loess", span = 0.2, linewidth = 1.2) +
+  facet_wrap(~Quelle, ncol = 1, scales = "free_y") +
+  scale_color_manual(values = c("Person_1" = "#4e79a7", "Person_2" = "#e15759")) +
+  theme_minimal(base_size = 14) +
+  labs(
+    title = "Entwicklung der gesendeten Emojis im Zeitverlauf",
+    subtitle = "Anzahl gesendeter Emojis pro Tag (Trends geglättet)",
+    x = "Datum",
+    y = "Emojis pro Tag",
+    color = "Person"
+  ) +
+  theme(legend.position = "bottom", strip.text = element_text(face = "bold"))
+
+
+##############################################################################
+
+library(tidyverse)
+
+# --- CHAT 1 ---
 chat_daten_1 <- readRDS("Teilnehmer_1_2026-05-07_20-20-28_1883dad6.rds")
 
 msg_counts_1 <- chat_daten_1 %>% 
@@ -723,6 +790,67 @@ ggplot(data = kombinierte_nachrichten_sauber, aes(x = Quelle, y = Anzahl_Nachric
     panel.grid.major.x = element_blank()
   )
 
+###############################################################################
+
+library(tidyverse)
+
+# --- CHAT 1 ---
+timeline_1 <- readRDS("Teilnehmer_1_2026-05-07_20-20-28_1883dad6.rds") %>% 
+  filter(!is.na(Sender), Sender != "", Sender != "WhatsApp", Sender != "System") %>% 
+  mutate(Datum = as.Date(DateTime)) %>% 
+  count(Datum, Sender, name = "Nachrichten_Anzahl")
+
+# --- CHAT 2 ---
+timeline_2 <- readRDS("Teilnehmer_1_2026-05-07_20-22-52_40ccf5e8.rds") %>% 
+  filter(!is.na(Sender), Sender != "", Sender != "WhatsApp", Sender != "System") %>% 
+  mutate(Datum = as.Date(DateTime)) %>% 
+  count(Datum, Sender, name = "Nachrichten_Anzahl")
+
+# --- CHAT 3 ---
+timeline_3 <- readRDS("Teilnehmer_1_2026-05-07_20-25-04_d0f4f621.rds") %>% 
+  filter(!is.na(Sender), Sender != "", Sender != "WhatsApp", Sender != "System") %>% 
+  mutate(Datum = as.Date(DateTime)) %>% 
+  count(Datum, Sender, name = "Nachrichten_Anzahl")
+
+kombinierte_timeline <- bind_rows(
+  "Chat 1" = timeline_1,
+  "Chat 2" = timeline_2,
+  "Chat 3" = timeline_3,
+  .id = "Quelle"
+)
+
+library(ggplot2)
+
+ggplot(data = kombinierte_timeline, aes(x = Datum, y = Nachrichten_Anzahl, color = Sender)) +
+  
+  # 1. Die echten täglichen Werte (blass im Hintergrund)
+  geom_line(alpha = 0.3, linewidth = 0.5) +
+  
+  # 2. Die geglättete Trendlinie (kräftig im Vordergrund)
+  # span = 0.2 macht die Linie etwas feiner, um Trends besser zu zeigen
+  geom_smooth(se = FALSE, method = "loess", span = 0.2, linewidth = 1.2) +
+  
+  # Trennung in drei Fenster untereinander
+  facet_wrap(~Quelle, ncol = 1, scales = "free_y") +
+  
+  # Unsere gewohnten, konsistenten Farben für die Personen
+  scale_color_manual(values = c("Person_1" = "#4e79a7", "Person_2" = "#e15759")) +
+  
+  theme_minimal(base_size = 14) +
+  labs(
+    title = "Entwicklung der Chat-Aktivität im Zeitverlauf",
+    subtitle = "Anzahl gesendeter Nachrichten pro Tag (Trends geglättet)",
+    x = "Datum",
+    y = "Nachrichten pro Tag",
+    color = "Person"
+  ) +
+  theme(
+    legend.position = "bottom",
+    strip.background = element_rect(fill = "#f0f0f0", color = NA),
+    strip.text = element_text(face = "bold"),
+    panel.spacing = unit(1.5, "lines"),
+    panel.grid.minor = element_blank()
+  )
 ###############################################################################
 
 library(tidyverse)
