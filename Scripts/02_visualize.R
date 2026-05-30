@@ -17,6 +17,24 @@ library(slider)
 library(ragg)
 library(tidyverse)
 library(WhatsR)
+##############################################################
+#Personen in Datensätzen austauschen
+
+library(tidyverse)
+
+# 1. Dateien einlesen und Namen korrigieren
+chat1_neu <- readRDS("Teilnehmer_1_2026-05-07_20-20-28_1883dad6.rds") %>% 
+  mutate(Sender = recode(Sender, "Person_1" = "Person_2", "Person_2" = "Person_1"))
+
+chat2_neu <- readRDS("Teilnehmer_1_2026-05-07_20-22-52_40ccf5e8.rds") %>% 
+  mutate(Sender = recode(Sender, "Person_1" = "Person_2", "Person_2" = "Person_1"))
+
+chat3_neu <- readRDS("Teilnehmer_1_2026-05-07_20-25-04_d0f4f621.rds") # Bleibt wie er ist
+
+# 2. Als NEUE Dateien auf der Festplatte speichern
+saveRDS(chat1_neu, "Chat1_KORRIGIERT.rds")
+saveRDS(chat2_neu, "Chat2_KORRIGIERT.rds")
+saveRDS(chat3_neu, "Chat3_KORRIGIERT.rds")
 
 source(file.path("Scripts", "00_Helpers.R")) ## lets again load our helpers, we might need them!
 
@@ -481,206 +499,101 @@ plot_relative_emoji(example_chat, 5, "rel_emoji", as.POSIXct("2020-01-01"))
 
 ###############################################################################
 
-# 1. Das Suchmuster definieren (falls noch nicht geschehen)
-emoji_regex <- "[\\x{1F300}-\\x{1F6FF}\\x{1F900}-\\x{1F9FF}\\x{2600}-\\x{26FF}\\x{2700}-\\x{27BF}]"
+# Erstellung Balkendiagramm Anzahl gesendete Emojis (nur Zeitraum von Chat 1)
 
-# 2. Daten verarbeiten
-emoji_counts_mit_person <- chat %>%  # <- Hier den Namen deiner Tabelle eintragen
-  # JETZT KORRIGIERT: Erst die Nachrichtenspalte, dann die Regex-Formel
-  mutate(Emoji = str_extract_all(Emoji, emoji_regex)) %>% 
-  unnest(Emoji) %>%
-  # Hier zählen wir nach Sender und Emoji
-  count(Sender, Emoji, name = "n")
+library(tidyverse)
+library(ggplot2)
 
-# Wir nutzen nun den neuen Datensatz mit der Personen-Spalte
-ggplot(data = emoji_counts_mit_person, aes(x = Sender, y = n, fill = Sender)) +
-  
-  # Erstellt die Balken und summiert die Emojis pro Person automatisch auf
-  geom_col(show.legend = FALSE, width = 0.5) +
-  
-  # Schöne Farben für Person_1 und Person_2
-  scale_fill_brewer(palette = "Set1") + 
-  
-  theme_minimal(base_size = 14) +
-  
-  labs(
-    title = "Gesamtanzahl der gesendeten Emojis pro Person",
-    subtitle = "Vergleich zwischen Person 1 und Person 2",
-    x = "Person",
-    y = "Gesamtanzahl Emojis"
-  ) +
-  
-  # Schreibt die exakte Gesamtzahl über die Balken
-  stat_summary(
-    fun = sum, 
-    aes(label = after_stat(y)), 
-    geom = "text", 
-    vjust = -0.5, 
-    fontface = "bold"
-  )
+# --- 1. CHAT 1 EINLESEN & ZEITRAUM ERMITTELN ---
+raw_data_1 <- readRDS("Chat1_KORRIGIERT.rds") 
 
-# 1. Suchmuster für Emojis definieren
-emoji_regex <- "[\\x{1F300}-\\x{1F6FF}\\x{1F900}-\\x{1F9FF}\\x{2600}-\\x{26FF}\\x{2700}-\\x{27BF}]"
+emoji_timeline_1_raw <- raw_data_1 %>%  
+  filter(!is.na(Sender), Sender != "", Sender != "WhatsApp", Sender != "System", Sender != "WhatsApp System Message") %>% 
+  mutate(Datum = as.Date(DateTime))
 
-# --- ZWEITER DATENSATZ ---
-# 2. RDS-Datei einlesen
-raw_data_2 <- readRDS("Teilnehmer_1_2026-05-07_20-22-52_40ccf5e8.rds") 
+# HIER STECKT DER TRICK: Wir merken uns Start und Ende von Chat 1
+start_datum <- min(emoji_timeline_1_raw$Datum, na.rm = TRUE)
+ende_datum  <- max(emoji_timeline_1_raw$Datum, na.rm = TRUE)
 
-# 3. Emojis extrahieren und zählen
-emoji_counts_mit_person_2 <- raw_data_2 %>% 
-  mutate(Emoji = str_extract_all(Emoji, emoji_regex)) %>% 
-  unnest(Emoji) %>%
-  count(Sender, Emoji, name = "n")
+# Jetzt berechnen wir die Emojis für Chat 1 fertig
+emoji_counts_mit_person <- emoji_timeline_1_raw %>% 
+  filter(!is.na(EmojiDescriptions), EmojiDescriptions != "") %>% 
+  mutate(Message_Clean = sapply(EmojiDescriptions, function(x) paste(unlist(x), collapse = " "))) %>% 
+  mutate(n = str_count(Message_Clean, "\\w+")) %>% 
+  group_by(Sender) %>% 
+  summarise(n = sum(n, na.rm = TRUE), .groups = "drop")
 
 
-# --- DRITTER DATENSATZ ---
-# 4. RDS-Datei einlesen
+# --- 2. CHAT 2 (Gefiltert auf Zeitraum von Chat 1) ---
+raw_data_2 <- readRDS("Chat2_KORRIGIERT.rds") 
+
+emoji_counts_mit_person_2 <- raw_data_2 %>%  
+  filter(!is.na(Sender), Sender != "", Sender != "WhatsApp", Sender != "System", Sender != "WhatsApp System Message") %>% 
+  mutate(Datum = as.Date(DateTime)) %>% 
+  # NEU: Filter auf den Zeitraum von Chat 1
+  filter(Datum >= start_datum & Datum <= ende_datum) %>% 
+  filter(!is.na(EmojiDescriptions), EmojiDescriptions != "") %>% 
+  mutate(Message_Clean = sapply(EmojiDescriptions, function(x) paste(unlist(x), collapse = " "))) %>% 
+  mutate(n = str_count(Message_Clean, "\\w+")) %>% 
+  group_by(Sender) %>% 
+  summarise(n = sum(n, na.rm = TRUE), .groups = "drop")
+
+
+# --- 3. CHAT 3 (Gefiltert auf Zeitraum von Chat 1) ---
 raw_data_3 <- readRDS("Teilnehmer_1_2026-05-07_20-25-04_d0f4f621.rds") 
 
-# 5. Emojis extrahieren und zählen
-emoji_counts_mit_person_3 <- raw_data_3 %>% 
-  mutate(Emoji = str_extract_all(Emoji, emoji_regex)) %>% 
-  unnest(Emoji) %>%
-  count(Sender, Emoji, name = "n")
+emoji_counts_mit_person_3 <- raw_data_3 %>%  
+  filter(!is.na(Sender), Sender != "", Sender != "WhatsApp", Sender != "System", Sender != "WhatsApp System Message") %>% 
+  mutate(Datum = as.Date(DateTime)) %>% 
+  # NEU: Filter auf den Zeitraum von Chat 1
+  filter(Datum >= start_datum & Datum <= ende_datum) %>% 
+  filter(!is.na(EmojiDescriptions), EmojiDescriptions != "") %>% 
+  mutate(Message_Clean = sapply(EmojiDescriptions, function(x) paste(unlist(x), collapse = " "))) %>% 
+  mutate(n = str_count(Message_Clean, "\\w+")) %>% 
+  group_by(Sender) %>% 
+  summarise(n = sum(n, na.rm = TRUE), .groups = "drop")
 
-# Zusammenführen und benennen, woher die Daten stammen
+
+# --- ZUSAMMENFÜHREN ---
 kombinierte_daten <- bind_rows(
   "Chat 1" = emoji_counts_mit_person,
   "Chat 2" = emoji_counts_mit_person_2,
   "Chat 3" = emoji_counts_mit_person_3,
   .id = "Quelle"
-)
+) %>% 
+  mutate(Sender = factor(Sender, levels = c("Person_1", "Person_2")))
 
-ggplot(data = kombinierte_daten, aes(x = Sender, y = n, fill = Quelle)) +
-  
-  # Nebeneinanderstehende Balken
+
+# --- DIAGRAMM ZEICHNEN ---
+ggplot(data = kombinierte_daten, aes(x = Quelle, y = n, fill = Sender)) +
   geom_col(position = position_dodge(width = 0.8), width = 0.7) +
-  
-  # Farbschema ("Set2" hat schöne, dezente Farben für 3 Gruppen)
-  scale_fill_brewer(palette = "Set2") + 
-  
-  theme_minimal(base_size = 14) +
-  
-  labs(
-    title = "Gesamtanzahl der gesendeten Emojis pro Person",
-    subtitle = "Vergleich über drei verschiedene Datensätze",
-    x = "Person",
-    y = "Gesamtanzahl Emojis",
-    fill = "Datenquelle"
-  ) +
-  
-  # Exakte Zahlen über die Balken schreiben
-  stat_summary(
-    fun = sum,
-    aes(label = after_stat(y)),
-    geom = "text",
-    position = position_dodge(width = 0.8), 
-    vjust = -0.5,
-    fontface = "bold",
-    size = 4
-  ) +
-  
-  theme(
-    legend.position = "bottom",
-    panel.grid.major.x = element_blank()
-  )
-
-# 1. Daten präzise für das Diagramm vorbereiten (Vorab aufsummieren)
-plot_daten <- kombinierte_daten %>%
-  group_by(Quelle, Sender) %>%
-  summarise(Gesamtanzahl = sum(n), .groups = "drop")
-
-# 2. Das korrigierte Diagramm zeichnen
-ggplot(data = plot_daten, aes(x = Sender, y = Gesamtanzahl, fill = Quelle)) +
-  
-  # Balken nebeneinander zeichnen
-  geom_col(position = position_dodge(width = 0.8), width = 0.7) +
-  
-  # Das Label direkt aus der berechneten Spalte holen (geom_text statt stat_summary)
   geom_text(
-    aes(label = Gesamtanzahl),
-    position = position_dodge(width = 0.8),
-    vjust = -0.5,           # Leicht über dem Balken positionieren
-    fontface = "bold",
-    size = 4
-  ) +
-  
-  # Styling & Beschriftung (wie gehabt)
-  scale_fill_brewer(palette = "Set2") + 
-  theme_minimal(base_size = 14) +
-  labs(
-    title = "Gesamtanzahl der gesendeten Emojis pro Person",
-    subtitle = "Vergleich über drei verschiedene Datensätze",
-    x = "Person",
-    y = "Gesamtanzahl Emojis",
-    fill = "Datenquelle"
-  ) +
-  theme(
-    legend.position = "bottom",
-    panel.grid.major.x = element_blank()
-  )
-
-# 1. Daten wie vorhin vorbereiten
-plot_daten <- kombinierte_daten %>%
-  group_by(Quelle, Sender) %>%
-  summarise(Gesamtanzahl = sum(n), .groups = "drop")
-
-# 2. Das neu strukturierte Diagramm zeichnen
-# HIER GEÄNDERT: x ist jetzt 'Quelle', fill ist 'Sender'
-ggplot(data = plot_daten, aes(x = Quelle, y = Gesamtanzahl, fill = Sender)) +
-  
-  # Zeichnet die Balken für Person_1 und Person_2 direkt nebeneinander
-  geom_col(position = position_dodge(width = 0.8), width = 0.7) +
-  
-  # Platziert die Zahlen exakt über den jeweiligen Balken des Paares
-  geom_text(
-    aes(label = Gesamtanzahl),
+    aes(label = n),
     position = position_dodge(width = 0.8),
     vjust = -0.5,
     fontface = "bold",
     size = 4
   ) +
-  
-  # Zwei gut unterscheidbare Farben für die beiden Personen
   scale_fill_manual(values = c("Person_1" = "#4e79a7", "Person_2" = "#e15759")) + 
-  
   theme_minimal(base_size = 14) +
-  
   labs(
     title = "Gesamtanzahl der gesendeten Emojis im Chatvergleich",
-    subtitle = "Direkter Vergleich zwischen Person 1 und Person 2 pro Datensatz",
+    subtitle = paste("Vergleich angepasst auf den Zeitraum von Chat 1 (", start_datum, " bis ", ende_datum, ")", sep=""),
     x = "Datenquelle (Chat)",
     y = "Gesamtanzahl Emojis",
     fill = "Person"
   ) +
-  
-  theme(
-    legend.position = "bottom",
-    panel.grid.major.x = element_blank() # Entfernt vertikale Linien für mehr Übersicht
-  )
+  theme(legend.position = "bottom", panel.grid.major.x = element_blank())
 
 #############################################################################
 
+# Erstellung Liniendiagramm gesendete Emojis im Zeitverlauf
+
 library(tidyverse)
+library(ggplot2)
 
-# --- CHAT 1 ---
-emoji_timeline_1 <- readRDS("Teilnehmer_1_2026-05-07_20-20-28_1883dad6.rds") %>% 
-  # Wir filtern Systemnachrichten raus
-  filter(!is.na(Sender), Sender != "", Sender != "WhatsApp", Sender != "System", Sender != "WhatsApp System Message") %>% 
-  mutate(Datum = as.Date(DateTime)) %>% 
-  # Wir behalten nur Zeilen, in denen tatsächlich ein Emoji beschrieben wurde
-  # (also nicht NA und nicht leer "")
-  filter(!is.na(EmojiDescriptions), EmojiDescriptions != "") %>% 
-  # Da in einer Nachricht mehrere Emojis stehen können, zählen wir, wie viele Beschreibungen (Wörter/Elemente) drinstecken.
-  # Falls die Emojis dort z.B. durch Komma oder Leerzeichen getrennt sind, zerlegen wir sie kurz:
-  mutate(Message_Clean = sapply(EmojiDescriptions, function(x) paste(unlist(x), collapse = " "))) %>% 
-  # Wir zählen die Anzahl der Wörter/Emoji-Beschreibungen in dieser Zeile
-  mutate(Anzahl_In_Nachricht = str_count(Message_Clean, "\\w+")) %>% 
-  group_by(Datum, Sender) %>% 
-  summarise(Emoji_Anzahl = sum(Anzahl_In_Nachricht, na.rm = TRUE), .groups = "drop")
-
-# --- CHAT 2 ---
-emoji_timeline_2 <- readRDS("Teilnehmer_1_2026-05-07_20-22-52_40ccf5e8.rds") %>% 
+# --- CHAT 1 (Nutzt jetzt die korrigierte Datei) ---
+emoji_timeline_1 <- readRDS("Chat1_KORRIGIERT.rds") %>% 
   filter(!is.na(Sender), Sender != "", Sender != "WhatsApp", Sender != "System", Sender != "WhatsApp System Message") %>% 
   mutate(Datum = as.Date(DateTime)) %>% 
   filter(!is.na(EmojiDescriptions), EmojiDescriptions != "") %>% 
@@ -689,7 +602,17 @@ emoji_timeline_2 <- readRDS("Teilnehmer_1_2026-05-07_20-22-52_40ccf5e8.rds") %>%
   group_by(Datum, Sender) %>% 
   summarise(Emoji_Anzahl = sum(Anzahl_In_Nachricht, na.rm = TRUE), .groups = "drop")
 
-# --- CHAT 3 ---
+# --- CHAT 2 (Nutzt jetzt die korrigierte Datei) ---
+emoji_timeline_2 <- readRDS("Chat2_KORRIGIERT.rds") %>% 
+  filter(!is.na(Sender), Sender != "", Sender != "WhatsApp", Sender != "System", Sender != "WhatsApp System Message") %>% 
+  mutate(Datum = as.Date(DateTime)) %>% 
+  filter(!is.na(EmojiDescriptions), EmojiDescriptions != "") %>% 
+  mutate(Message_Clean = sapply(EmojiDescriptions, function(x) paste(unlist(x), collapse = " "))) %>% 
+  mutate(Anzahl_In_Nachricht = str_count(Message_Clean, "\\w+")) %>% 
+  group_by(Datum, Sender) %>% 
+  summarise(Emoji_Anzahl = sum(Anzahl_In_Nachricht, na.rm = TRUE), .groups = "drop")
+
+# --- CHAT 3 (Hier nutzen wir die Originaldatei mit dem korrekten Namen) ---
 emoji_timeline_3 <- readRDS("Teilnehmer_1_2026-05-07_20-25-04_d0f4f621.rds") %>% 
   filter(!is.na(Sender), Sender != "", Sender != "WhatsApp", Sender != "System", Sender != "WhatsApp System Message") %>% 
   mutate(Datum = as.Date(DateTime)) %>% 
@@ -699,17 +622,18 @@ emoji_timeline_3 <- readRDS("Teilnehmer_1_2026-05-07_20-25-04_d0f4f621.rds") %>%
   group_by(Datum, Sender) %>% 
   summarise(Emoji_Anzahl = sum(Anzahl_In_Nachricht, na.rm = TRUE), .groups = "drop")
 
+# --- ZUSAMMENFÜHREN ---
 kombinierte_emoji_timeline <- bind_rows(
   "Chat 1" = emoji_timeline_1,
   "Chat 2" = emoji_timeline_2,
   "Chat 3" = emoji_timeline_3,
   .id = "Quelle"
 ) %>% 
-  # Filter erweitert, um auch den exakten Namen der Systemnachrichten zu löschen
-  filter(Sender != "WhatsApp System Message")
+  filter(Sender != "WhatsApp System Message") %>% 
+  # KORREKTUR: Erzwingt die Reihenfolge (Person_1 vor Person_2) in der Legende
+  mutate(Sender = factor(Sender, levels = c("Person_1", "Person_2")))
 
-library(ggplot2)
-
+# --- PLOTTEN ---
 ggplot(data = kombinierte_emoji_timeline, aes(x = Datum, y = Emoji_Anzahl, color = Sender)) +
   geom_line(alpha = 0.3, linewidth = 0.5) +
   geom_smooth(se = FALSE, method = "loess", span = 0.2, linewidth = 1.2) +
@@ -725,49 +649,63 @@ ggplot(data = kombinierte_emoji_timeline, aes(x = Datum, y = Emoji_Anzahl, color
   ) +
   theme(legend.position = "bottom", strip.text = element_text(face = "bold"))
 
-
 ##############################################################################
 
+# Erstellung Balkendiagramm Anzahl gesendete Nachrichten (nur Zeitraum von Chat 1)
+
 library(tidyverse)
+library(ggplot2)
 
-# --- CHAT 1 ---
-chat_daten_1 <- readRDS("Teilnehmer_1_2026-05-07_20-20-28_1883dad6.rds")
+# --- 1. CHAT 1 EINLESEN & ZEITRAUM ERMITTELN ---
+chat_daten_1 <- readRDS("Chat1_KORRIGIERT.rds")
 
-msg_counts_1 <- chat_daten_1 %>% 
-  # HIER WIRD GEFILTERT: Entfernt leere Zeilen und System-Absender
-  filter(!is.na(Sender), Sender != "", Sender != "WhatsApp System Message", Sender != "System") %>% 
+chat_daten_1_clean <- chat_daten_1 %>% 
+  filter(!is.na(Sender), Sender != "", Sender != "WhatsApp", Sender != "System", Sender != "WhatsApp System Message") %>% 
+  mutate(Datum = as.Date(DateTime))
+
+# Zeitraum von Chat 1 bestimmen
+start_datum <- min(chat_daten_1_clean$Datum, na.rm = TRUE)
+ende_datum  <- max(chat_daten_1_clean$Datum, na.rm = TRUE)
+
+msg_counts_1 <- chat_daten_1_clean %>% 
   count(Sender, name = "Anzahl_Nachrichten")
 
 
-# --- CHAT 2 ---
-chat_daten_2 <- readRDS("Teilnehmer_1_2026-05-07_20-22-52_40ccf5e8.rds")
+# --- 2. CHAT 2 (Gefiltert auf Zeitraum von Chat 1) ---
+chat_daten_2 <- readRDS("Chat2_KORRIGIERT.rds")
 
 msg_counts_2 <- chat_daten_2 %>% 
-  filter(!is.na(Sender), Sender != "", Sender != "WhatsApp System Message", Sender != "System") %>% 
+  filter(!is.na(Sender), Sender != "", Sender != "WhatsApp", Sender != "System", Sender != "WhatsApp System Message") %>% 
+  mutate(Datum = as.Date(DateTime)) %>% 
+  # NEU: Filter angewendet
+  filter(Datum >= start_datum & Datum <= ende_datum) %>% 
   count(Sender, name = "Anzahl_Nachrichten")
 
 
-# --- CHAT 3 ---
+# --- 3. CHAT 3 (Gefiltert auf Zeitraum von Chat 1) ---
 chat_daten_3 <- readRDS("Teilnehmer_1_2026-05-07_20-25-04_d0f4f621.rds") 
 
 msg_counts_3 <- chat_daten_3 %>% 
-  filter(!is.na(Sender), Sender != "", Sender != "WhatsApp System Message", Sender != "System") %>% 
+  filter(!is.na(Sender), Sender != "", Sender != "WhatsApp", Sender != "System", Sender != "WhatsApp System Message") %>% 
+  mutate(Datum = as.Date(DateTime)) %>% 
+  # NEU: Filter angewendet
+  filter(Datum >= start_datum & Datum <= ende_datum) %>% 
   count(Sender, name = "Anzahl_Nachrichten")
 
-# Zusammenführen der sauberen Daten
+
+# --- ZUSAMMENFÜHREN ---
 kombinierte_nachrichten_sauber <- bind_rows(
   "Chat 1" = msg_counts_1,
   "Chat 2" = msg_counts_2,
   "Chat 3" = msg_counts_3,
   .id = "Quelle"
-)
+) %>% 
+  mutate(Sender = factor(Sender, levels = c("Person_1", "Person_2")))
 
-# Diagramm zeichnen
-library(ggplot2)
 
+# --- DIAGRAMM ZEICHNEN ---
 ggplot(data = kombinierte_nachrichten_sauber, aes(x = Quelle, y = Anzahl_Nachrichten, fill = Sender)) +
   geom_col(position = position_dodge(width = 0.8), width = 0.7) +
-  
   geom_text(
     aes(label = Anzahl_Nachrichten),
     position = position_dodge(width = 0.8),
@@ -775,51 +713,60 @@ ggplot(data = kombinierte_nachrichten_sauber, aes(x = Quelle, y = Anzahl_Nachric
     fontface = "bold",
     size = 4
   ) +
-  
   scale_fill_manual(values = c("Person_1" = "#4e79a7", "Person_2" = "#e15759")) + 
   theme_minimal(base_size = 14) +
   labs(
     title = "Gesamtanzahl der gesendeten Nachrichten im Chatvergleich",
-    subtitle = "Bereinigte Daten (ohne WhatsApp-Systemnachrichten)",
+    subtitle = paste("Vergleich angepasst auf den Zeitraum von Chat 1 (", start_datum, " bis ", ende_datum, ")", sep=""),
     x = "Datenquelle (Chat)",
     y = "Anzahl geschriebener Nachrichten",
     fill = "Person"
   ) +
-  theme(
-    legend.position = "bottom",
-    panel.grid.major.x = element_blank()
-  )
+  theme(legend.position = "bottom", panel.grid.major.x = element_blank())
 
 ###############################################################################
 
+# Erstellung Liniendiagramm gesendete Nachrichten im Zeitverlauf
+
 library(tidyverse)
+library(ggplot2)
 
-# --- CHAT 1 ---
-timeline_1 <- readRDS("Teilnehmer_1_2026-05-07_20-20-28_1883dad6.rds") %>% 
-  filter(!is.na(Sender), Sender != "", Sender != "WhatsApp", Sender != "System") %>% 
+# --- CHAT 1 (Nutzt jetzt die korrigierte Datei) ---
+timeline_1 <- readRDS("Chat1_KORRIGIERT.rds") %>% 
+  filter(!is.na(Sender), Sender != "", Sender != "WhatsApp", Sender != "System", Sender != "WhatsApp System Message") %>% 
   mutate(Datum = as.Date(DateTime)) %>% 
   count(Datum, Sender, name = "Nachrichten_Anzahl")
 
-# --- CHAT 2 ---
-timeline_2 <- readRDS("Teilnehmer_1_2026-05-07_20-22-52_40ccf5e8.rds") %>% 
-  filter(!is.na(Sender), Sender != "", Sender != "WhatsApp", Sender != "System") %>% 
+# --- CHAT 2 (Nutzt jetzt die korrigierte Datei) ---
+timeline_2 <- readRDS("Chat2_KORRIGIERT.rds") %>% 
+  filter(!is.na(Sender), Sender != "", Sender != "WhatsApp", Sender != "System", Sender != "WhatsApp System Message") %>% 
   mutate(Datum = as.Date(DateTime)) %>% 
   count(Datum, Sender, name = "Nachrichten_Anzahl")
 
-# --- CHAT 3 ---
+# --- CHAT 3 (Hier nutzen wir die Originaldatei mit dem korrekten Namen) ---
 timeline_3 <- readRDS("Teilnehmer_1_2026-05-07_20-25-04_d0f4f621.rds") %>% 
-  filter(!is.na(Sender), Sender != "", Sender != "WhatsApp", Sender != "System") %>% 
+  filter(!is.na(Sender), Sender != "", Sender != "WhatsApp", Sender != "System", Sender != "WhatsApp System Message") %>% 
   mutate(Datum = as.Date(DateTime)) %>% 
   count(Datum, Sender, name = "Nachrichten_Anzahl")
+
+
+# ==========================================
+# ZUSAMMENFÜHREN UND SORTIERUNG ERZWINGEN
+# ==========================================
 
 kombinierte_timeline <- bind_rows(
   "Chat 1" = timeline_1,
   "Chat 2" = timeline_2,
   "Chat 3" = timeline_3,
   .id = "Quelle"
-)
+) %>% 
+  # KORREKTUR: Erzwingt die Reihenfolge (Person_1 vor Person_2) in der Legende
+  mutate(Sender = factor(Sender, levels = c("Person_1", "Person_2")))
 
-library(ggplot2)
+
+# ==========================================
+# DIAGRAMM ZEICHNEN
+# ==========================================
 
 ggplot(data = kombinierte_timeline, aes(x = Datum, y = Nachrichten_Anzahl, color = Sender)) +
   
@@ -827,7 +774,6 @@ ggplot(data = kombinierte_timeline, aes(x = Datum, y = Nachrichten_Anzahl, color
   geom_line(alpha = 0.3, linewidth = 0.5) +
   
   # 2. Die geglättete Trendlinie (kräftig im Vordergrund)
-  # span = 0.2 macht die Linie etwas feiner, um Trends besser zu zeigen
   geom_smooth(se = FALSE, method = "loess", span = 0.2, linewidth = 1.2) +
   
   # Trennung in drei Fenster untereinander
@@ -851,77 +797,88 @@ ggplot(data = kombinierte_timeline, aes(x = Datum, y = Nachrichten_Anzahl, color
     panel.spacing = unit(1.5, "lines"),
     panel.grid.minor = element_blank()
   )
+
 ###############################################################################
 
+# Erstellung Liniendiagramm der Reaktionszeit im Zeitverlauf
+
 library(tidyverse)
-library(lubridate)
-
-berechne_reaktionszeit <- function(rds_pfad) {
-  readRDS(rds_pfad) %>%
-    # 1. System-Nachrichten direkt ausschließen
-    filter(!is.na(Sender), Sender != "", Sender != "WhatsApp System Message", Sender != "System") %>%
-    # 2. Chronologisch sortieren (Wichtig: Nutze deine echte Zeit-Spalte statt 'Timestamp')
-    arrange(DateTime) %>%
-    # 3. Den vorherigen Sender und die vorherige Zeit ermitteln
-    mutate(
-      Vorheriger_Sender = lag(Sender),
-      Vorherige_Zeit = lag(DateTime)
-    ) %>%
-    # 4. Filter: Nur Zeilen behalten, bei denen der Sender GEWECHSELT hat
-    filter(Sender != Vorheriger_Sender) %>%
-    # 5. Zeitdifferenz in Minuten berechnen
-    mutate(
-      Reaktionszeit_Min = as.numeric(difftime(DateTime, Vorherige_Zeit, units = "mins")),
-      # Datum extrahieren für die X-Achse (z.B. auf Tage gerundet)
-      Datum = as.Date(DateTime)
-    ) %>%
-    # 6. Ausreißer begrenzen (z.B. Antworten, die länger als 3 Stunden/180 Min gedauert haben, ignorieren)
-    filter(Reaktionszeit_Min <= 180) %>%
-    # 7. Daten aggregieren: Durchschnittliche Antwortzeit pro Tag und Person berechnen
-    group_by(Datum, Sender) %>%
-    summarise(Avg_Reaktionszeit = mean(Reaktionszeit_Min, na.rm = TRUE), .groups = "drop")
-}
-
-# Berechnen für alle drei Chats
-chat_1_bereinigt <- berechne_reaktionszeit("Teilnehmer_1_2026-05-07_20-20-28_1883dad6.rds")
-chat_2_bereinigt <- berechne_reaktionszeit("Teilnehmer_1_2026-05-07_20-22-52_40ccf5e8.rds")
-chat_3_bereinigt <- berechne_reaktionszeit("Teilnehmer_1_2026-05-07_20-25-04_d0f4f621.rds")
-
-# Zusammenfügen
-kombinierte_reaktionszeit <- bind_rows(
-  "Chat 1" = chat_1_bereinigt,
-  "Chat 2" = chat_2_bereinigt,
-  "Chat 3" = chat_3_bereinigt,
-  .id = "Quelle"
-)
-
 library(ggplot2)
 
-ggplot(data = kombinierte_reaktionszeit, aes(x = Datum, y = Avg_Reaktionszeit, color = Sender)) +
+# --- CHAT 1 (Nutzt jetzt die korrigierte Datei) ---
+reaktion_1 <- readRDS("Chat1_KORRIGIERT.rds") %>% 
+  filter(!is.na(Sender), Sender != "", Sender != "WhatsApp", Sender != "System", Sender != "WhatsApp System Message") %>% 
+  mutate(Datum = as.Date(DateTime)) %>% 
+  # Wir berechnen die Zeitdifferenz zur vorherigen Nachricht in Minuten
+  mutate(Reaktionszeit_Min = as.numeric(difftime(DateTime, lag(DateTime), units = "mins"))) %>% 
+  # Wir betrachten nur Antworten, die vom jeweils ANDEREN kommen und filtern extreme Ausreißer (z.B. nach Tagen)
+  filter(Sender != lag(Sender), Reaktionszeit_Min > 0, Reaktionszeit_Min < 180) %>% 
+  group_by(Datum, Sender) %>% 
+  summarise(Median_Reaktionszeit = median(Reaktionszeit_Min, na.rm = TRUE), .groups = "drop")
+
+# --- CHAT 2 (Nutzt jetzt die korrigierte Datei) ---
+reaktion_2 <- readRDS("Chat2_KORRIGIERT.rds") %>% 
+  filter(!is.na(Sender), Sender != "", Sender != "WhatsApp", Sender != "System", Sender != "WhatsApp System Message") %>% 
+  mutate(Datum = as.Date(DateTime)) %>% 
+  mutate(Reaktionszeit_Min = as.numeric(difftime(DateTime, lag(DateTime), units = "mins"))) %>% 
+  filter(Sender != lag(Sender), Reaktionszeit_Min > 0, Reaktionszeit_Min < 180) %>% 
+  group_by(Datum, Sender) %>% 
+  summarise(Median_Reaktionszeit = median(Reaktionszeit_Min, na.rm = TRUE), .groups = "drop")
+
+# --- CHAT 3 (Hier nutzen wir die Originaldatei mit dem korrekten Namen) ---
+reaktion_3 <- readRDS("Teilnehmer_1_2026-05-07_20-25-04_d0f4f621.rds") %>% 
+  filter(!is.na(Sender), Sender != "", Sender != "WhatsApp", Sender != "System", Sender != "WhatsApp System Message") %>% 
+  mutate(Datum = as.Date(DateTime)) %>% 
+  mutate(Reaktionszeit_Min = as.numeric(difftime(DateTime, lag(DateTime), units = "mins"))) %>% 
+  filter(Sender != lag(Sender), Reaktionszeit_Min > 0, Reaktionszeit_Min < 180) %>% 
+  group_by(Datum, Sender) %>% 
+  summarise(Median_Reaktionszeit = median(Reaktionszeit_Min, na.rm = TRUE), .groups = "drop")
+
+
+# ==========================================
+# ZUSAMMENFÜHREN UND SORTIERUNG ERZWINGEN
+# ==========================================
+
+kombinierte_reaktionszeit <- bind_rows(
+  "Chat 1" = reaktion_1,
+  "Chat 2" = reaktion_2,
+  "Chat 3" = reaktion_3,
+  .id = "Quelle"
+) %>% 
+  # KORREKTUR: Erzwingt die Reihenfolge (Person_1 vor Person_2) in der Legende
+  mutate(Sender = factor(Sender, levels = c("Person_1", "Person_2")))
+
+
+# ==========================================
+# DIAGRAMM ZEICHNEN
+# ==========================================
+
+ggplot(data = kombinierte_reaktionszeit, aes(x = Datum, y = Median_Reaktionszeit, color = Sender)) +
   
-  # Zeichnet die Linien (glättet sie leicht mit geom_smooth für bessere Lesbarkeit, falls es zappelig ist)
-  geom_line(alpha = 0.4, linewidth = 0.8) + 
-  geom_smooth(se = FALSE, method = "loess", span = 0.3, linewidth = 1.2) +
+  # 1. Die echten täglichen Median-Werte (blass im Hintergrund)
+  geom_line(alpha = 0.3, linewidth = 0.5) +
   
-  # Trennt das Diagramm sauber in 3 Fenster (eines pro Chat) untereinander auf
-  facet_wrap(~Quelle, ncol = 1, scales = "free_x") +
+  # 2. Die geglättete Trendlinie (kräftig im Vordergrund)
+  geom_smooth(se = FALSE, method = "loess", span = 0.2, linewidth = 1.2) +
   
-  # Farben für die Personen (konsistent zum vorherigen Plot)
+  # Trennung in drei Fenster untereinander
+  facet_wrap(~Quelle, ncol = 1, scales = "free_y") +
+  
+  # Unsere gewohnten, konsistenten Farben für die Personen
   scale_color_manual(values = c("Person_1" = "#4e79a7", "Person_2" = "#e15759")) +
   
   theme_minimal(base_size = 14) +
-  
   labs(
-    title = "Durchschnittliche Reaktionszeit im Zeitverlauf",
-    subtitle = "Nur bei Senderwechsel gemessen (Trends geglättet, max. 180 Min Wartezeit gewertet)",
+    title = "Entwicklung der Reaktionszeit im Zeitverlauf",
+    subtitle = "Täglicher Median der Antwortzeit (Trends geglättet, Max. 3 Stunden berücksichtigt)",
     x = "Datum",
-    y = "Ø Antwortzeit (in Minuten)",
+    y = "Reaktionszeit (Minuten)",
     color = "Person"
   ) +
-  
   theme(
     legend.position = "bottom",
     strip.background = element_rect(fill = "#f0f0f0", color = NA),
     strip.text = element_text(face = "bold"),
-    panel.spacing = unit(1.5, "lines") # Mehr Abstand zwischen den Chat-Fenstern
+    panel.spacing = unit(1.5, "lines"),
+    panel.grid.minor = element_blank()
   )
